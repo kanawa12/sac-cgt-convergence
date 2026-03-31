@@ -40,7 +40,7 @@ def dp(ep, capt="", pmode=0, is_expt=False, isptype = False, is_latex = False):
 		print(sp.latex(ep))
 	return
 
-		
+
 
 def setf(tp, suf, size):
     """
@@ -54,9 +54,80 @@ def get_SISO_sims(dim, suf):
     A = sp.Matrix( a := sp.symbols(setf("a", suf, dim**2)) ).reshape(dim, dim)
     B = sp.Matrix( b := sp.symbols(setf("b", suf, dim)) ).reshape(dim, 1)
     C = sp.Matrix( c := sp.symbols(setf("c", suf, dim)) ).reshape(1, dim)
-    D = sp.Matrix( [0] )
-    return [(a, b, c), (A, B, C, D)]
+    D = sp.Matrix( d := sp.symbols(setf("d", suf, 1)) ).reshape(1, 1)
+    return [(a, b, c, d), (A, B, C, D)]
 
+
+
+def makesyms(s1, s2, x, y) -> sp.Matrix:
+    st = ""
+    for i in range(x):
+        for j in range(y):
+            """
+            if x == 1:
+                st = st + "{" + s1 + "_" + s2 + r"}_{" + str(j+1)  + "} "
+            elif y == 1:
+                st = st + "{" + s1 + "_" + s2 + r"}_{" + str(i+1)  + "} "
+            else:
+                """
+            st = st + "{" + s1 + "_" + s2 + r"}_{" + str(i+1) + str(j+1)  + "} "
+    syms = sp.symbols(st)
+    if x == 1 and y == 1:
+        syms = [syms, ]
+    return sp.Matrix(syms).reshape(x, y)
+
+def make_single_syms(s1, s2, x, y):
+    st = ""
+    n = max(x,y)
+    for i in range(n):
+        st = st + "{" + s1 + "_" + s2 + r"}_{" + str(i+1) + "} "
+    syms = sp.symbols(st)
+    if x == 1 and y == 1:
+        syms = [syms, ]
+    return sp.Matrix(syms).reshape(x, y)
+
+
+
+def make_sym_canonform(systuple: sp.physics.control.StateSpace, mode: str, is_strictproper) -> sp.physics.control.StateSpace:
+    """
+    初期化されたsym StateSpaceを受け取り、標準形を作って返す。
+    mode:
+    "diag": 対角標準形
+    "obs" : 可観測標準形
+    delmatnums: すべて1にする行列の番号(主に対角標準形について、B行列かC行列を1に正規化する場合)
+    """
+    sysdim, iodim = systuple.num_states, systuple.num_inputs
+    A = sp.zeros(sysdim, sysdim)
+    B = sp.zeros(sysdim, iodim)
+    C = sp.zeros(iodim, sysdim)
+    D = sp.zeros(iodim, iodim)
+
+    if mode == "diag":
+        B = systuple.B
+        C = systuple.C
+        D = systuple.D
+    if mode == "obs":
+        B = systuple.B
+        D = systuple.D
+
+    for i in range(sysdim):
+        for j in range(sysdim):
+            if mode == "diag":
+                if i == j:
+                    A[i,j] = systuple.A[i,j]
+            if mode == "obs":
+                if j == (sysdim - 1):
+                    A[i,j] = systuple.A[i,j]
+                if (i - j) == 1:
+                    A[i,j] = 1
+                if (i == 0) and (j == sysdim - 1):
+                    C[i,j] = 1
+    if is_strictproper:
+          D = sp.Matrix([[0]])
+    return sp.physics.control.StateSpace(A, B, C, D)
+
+def ss_to_blockmat(ss: sp.physics.control.StateSpace) -> sp.BlockMatrix:
+      return sp.BlockMatrix([[ss.A, ss.B], [ss.C, ss.D]])
 
 def eqs_to_mat(eqList: list, valList: list) -> sp.Matrix:
 	"""
@@ -242,6 +313,21 @@ def zpk_to_observable_canonical(zeros: Sequence[complex] | None,
       zpk -> controllable canonical -> observable canonical
     """
     return controllable_to_observable(zpk_to_controllable_canonical(zeros=zeros, poles=poles, gain=gain))
+
+def getzpkss(z,p,k):
+    """
+    zpk -> tf -> ss
+    """
+    Gp = ct.zpk(z,p,k)          # continuous-time
+    Gs = ct.ss(Gp)
+
+    # modal canonical form
+    Gm, T = ct.modal_form(Gs)     # A が（ほぼ）対角/ブロック対角
+    A, B, C, D = Gm.A, Gm.B, Gm.C, Gm.D
+    C[0,0] = B[0,0]*C[0,0]
+    C[0,1] = B[1,0]*C[0,1]
+    B = np.array([[1], [1]])
+    return sp.Tuple(A,B,C,D)
 
 
 def ss_to_mats(ss):
