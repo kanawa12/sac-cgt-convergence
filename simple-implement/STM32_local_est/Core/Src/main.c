@@ -75,14 +75,23 @@ uint32_t vval = 0;
 
 uint32_t t0 = 0;
 uint32_t t1 = 0;
-uint8_t timcount = 0;
+uint32_t timcount = 0;
+volatile uint16_t freq = 1000;
+volatile float omega = 0.0f;
+volatile uint16_t offset = 2048;
+
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
     if (htim->Instance == TIM6)
     {
         // ここに1 msごとに実行したい処理を書く
+    	if(timcount % 100000 == 0){
+    		//printf("time:%d \r\n", timcount);
+    	}
     	BSP_LED_Toggle(LED_RED);
+    	// HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, 100*timcount);
+    	HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, sinf( omega*timcount)*1024 + offset);
     	timcount += 1;
     }
 }
@@ -203,6 +212,7 @@ int main(void)
   HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, 1);
   while (1)
   {
+	  omega = 2.0f * 3.1415926f / (float)freq;
 
     /* -- Sample board code for User push-button in interrupt mode ---- */
     if (BspButtonState == BUTTON_PRESSED)
@@ -222,23 +232,26 @@ int main(void)
 
 
       adc_volread();
+      printf("val:%d \r\n",is_dac);
       if(is_dac){
-    	  HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, 2048);
+    	  HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, 2048); // DAC set
       } else {
     	  HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, 1);
       }
       is_dac = !is_dac;
-      printf("val:%d \r\n",is_dac);
+      printf("valafter:%d \r\n",is_dac);
+
 
 
       //printf("elapsed = %lu ms\r\n", (unsigned long)(t1 - t0));
     }
-    if(timcount == 10){
-    	timcount = 0;
-    	t1 = HAL_GetTick();
-    	printf("elapsed = %lu ms\r\n", (unsigned long)(t1 - t0));
-    	t0 = t1;
-    }
+
+//    if(timcount == 10){
+//    	timcount = 0;
+//    	t1 = HAL_GetTick();
+//    	printf("elapsed = %lu ms\r\n", (unsigned long)(t1 - t0));
+//    	t0 = t1;
+//    }
 
     /* USER CODE END WHILE */
 
@@ -430,9 +443,9 @@ static void MX_TIM6_Init(void)
 
   /* USER CODE END TIM6_Init 1 */
   htim6.Instance = TIM6;
-  htim6.Init.Prescaler = 19200-1;
+  htim6.Init.Prescaler = 192-1;
   htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim6.Init.Period = 1000-1;
+  htim6.Init.Period = 10-1;
   htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
   {
