@@ -1,0 +1,30 @@
+# STM32CubeIDE workspace state
+.metadata/
+
+# Build outputs
+Debug/
+Release/
+build/
+cmake-build-*/
+
+# Binaries / object files
+*.elf
+*.bin
+*.hex
+*.map
+*.srec
+*.lst
+*.o
+*.d
+*.a
+*.su
+*.crl
+
+# Logs / temporary files
+*.log
+*.bak
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/ipch/
