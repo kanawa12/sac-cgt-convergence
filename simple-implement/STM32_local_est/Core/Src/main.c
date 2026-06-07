@@ -23,7 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include <stdint.h>
 #include <stdio.h>
-
+#include <math.h>
 
 /* USER CODE END Includes */
 
@@ -51,6 +51,8 @@ ADC_HandleTypeDef hadc3;
 
 DAC_HandleTypeDef hdac1;
 
+OPAMP_HandleTypeDef hopamp2;
+
 TIM_HandleTypeDef htim6;
 
 /* USER CODE BEGIN PV */
@@ -64,6 +66,7 @@ static void MX_GPIO_Init(void);
 static void MX_ADC3_Init(void);
 static void MX_TIM6_Init(void);
 static void MX_DAC1_Init(void);
+static void MX_OPAMP2_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -72,31 +75,87 @@ static void MX_DAC1_Init(void);
 /* USER CODE BEGIN 0 */
 uint32_t gu_temp = 0;
 uint32_t vval = 0;
+uint32_t ctrl_input = 0;
+float tgtval = 0;
 
 uint32_t t0 = 0;
 uint32_t t1 = 0;
 uint32_t timcount = 0;
-volatile uint16_t freq = 1000;
+
+uint8_t timelen = 10; // [us]
+uint32_t time_multiple = 5;
+
+volatile uint16_t freq = 100;
 volatile float omega = 0.0f;
 volatile uint16_t offset = 2048;
+volatile uint16_t vref = 2048;
+volatile uint8_t USERS_is_run_adc = 0;
+
+void usr_set_DACval(float);
+float usr_ADC_volread(void);
 
 
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-    if (htim->Instance == TIM6)
-    {
-        // ここに1 msごとに実行したい処理を書く
-    	if(timcount % 100000 == 0){
-    		//printf("time:%d \r\n", timcount);
-    	}
-    	BSP_LED_Toggle(LED_RED);
-    	// HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, 100*timcount);
-    	HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, sinf( omega*timcount)*1024 + offset);
-    	timcount += 1;
+/**
+ * スケールされているADC測定値を実際の電圧値に戻す
+ * 入力は[0, 4095] 実際の電圧値は[-3.3, 3.3]
+ */
+static inline float usr_ADC_scaler(uint16_t readval){
+	return (readval - 2048)*3.3f/2048;
+}
+
+
+static inline float usr_controller(){
+	return sinf(omega * timcount);
+}
+
+
+float readval = 0;
+float u = 0;
+float errors = 0;
+float y = 0;
+
+volatile uint8_t usr_bool_simple_output = 0;
+volatile float output_voltage = 1.5;
+
+
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc){
+    if (hadc->Instance == ADC3) {
+        uint32_t adc = HAL_ADC_GetValue(&hadc3);
+
+        y = usr_ADC_scaler((uint16_t)adc);
+        errors += fabsf(y - u); // compare old u and y
+        if (usr_bool_simple_output){
+        	u = output_voltage;
+        } else {
+        	u = usr_controller();
+        }
+
+        usr_set_DACval(u);
+
+        timcount++;
     }
 }
 
-void adc_test(uint16_t ts_cal1, uint16_t ts_cal2){
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+/*    if (htim->Instance == TIM6)
+    {
+
+    	 * update rate: 100 kHz = 10^5 Hz
+    	 * Ts : 10 us
+    	 *
+
+    	readval = usr_ADC_volread();
+    	errors += fabsf(readval - sval);
+    	sval = sinf( omega*timcount);
+
+    	usr_set_DACval(sval);
+    	timcount += 1;
+    }*/
+}
+
+/*
+void usr_adc_test(uint16_t ts_cal1, uint16_t ts_cal2){
 	HAL_ADC_PollForConversion(&hadc3, 1000);
 	gu_temp = HAL_ADC_GetValue(&hadc3);
 	int32_t temperature =
@@ -107,18 +166,47 @@ void adc_test(uint16_t ts_cal1, uint16_t ts_cal2){
 	printf("Temp = %ld degC\r\n", (long)temperature);
 
 }
+*/
 
-void adc_volread(void){
-	//t0 = HAL_GetTick(); // 分解能:1ms
+
+
+/**
+ * [-3.3, 3.3] の出力電圧値を受け取り、[0, 3.3]にスケール後[0,4095]に量子化しDACに出力
+ */
+void usr_set_DACval(float volt_val)
+{
+	float normalval = (volt_val + 3.3f) / 6.6f; // 0.0 =< normalval =< 1.0;
+    int32_t code = (int32_t)(normalval * 4096.0f);
+
+    if (code < 0) code = 0;
+    if (code > 4095) code = 4095;
+
+    HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, (uint32_t)code);
+}
+
+
+
+
+/**
+ * 遅いので使わない
+ */
+float usr_ADC_volread(void){
+	float dacval = 0;
 	HAL_ADC_Start(&hadc3); // adc start
 	if (HAL_ADC_PollForConversion(&hadc3, 1000) == HAL_OK ){
-		vval = HAL_ADC_GetValue(&hadc3);
+		dacval = usr_ADC_scaler((uint16_t)HAL_ADC_GetValue(&hadc3));
 	}
 	HAL_ADC_Stop(&hadc3);
-	//t1 = HAL_GetTick();
-	printf("ADC = %lu, ratio = %.6f\r\n",
-				   (unsigned long)vval,
-				   (double)vval / 4095.0);
+	return dacval;
+}
+
+
+/**
+ * for init and debug
+ */
+void usr_param_update(){
+	omega = 6.2831852f * freq / (float)pow(10, time_multiple);
+	HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_2, DAC_ALIGN_12B_R, vref);
 
 }
 
@@ -159,17 +247,22 @@ int main(void)
   MX_ADC3_Init();
   MX_TIM6_Init();
   MX_DAC1_Init();
+  MX_OPAMP2_Init();
   /* USER CODE BEGIN 2 */
-
-  HAL_TIM_Base_Start_IT(&htim6);
-
+  HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
+  HAL_DAC_Start(&hdac1, DAC_CHANNEL_2);
   HAL_ADCEx_Calibration_Start(&hadc3, ADC_CALIB_OFFSET, ADC_SINGLE_ENDED);
 
-
-  uint16_t ts_cal1 = *(const uint16_t *)TS_CAL1_ADDR;
-  uint16_t ts_cal2 = *(const uint16_t *)TS_CAL2_ADDR;
+  usr_param_update();
 
 
+  HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, 1);
+  HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_2, DAC_ALIGN_12B_R, vref);
+
+  HAL_ADC_Start_IT(&hadc3);
+
+//  uint16_t ts_cal1 = *(const uint16_t *)TS_CAL1_ADDR;
+//  uint16_t ts_cal2 = *(const uint16_t *)TS_CAL2_ADDR;
 
 
   /* USER CODE END 2 */
@@ -207,13 +300,14 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  int is_dac = 0;
-  HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
-  HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, 1);
+
+
+  printf("start_time[ms]:%lu\r\n", HAL_GetTick());
+
+  HAL_TIM_Base_Start_IT(&htim6); //タイマ開始は初期化の最後に
+
   while (1)
   {
-	  omega = 2.0f * 3.1415926f / (float)freq;
-
     /* -- Sample board code for User push-button in interrupt mode ---- */
     if (BspButtonState == BUTTON_PRESSED)
     {
@@ -225,33 +319,11 @@ int main(void)
       //BSP_LED_Toggle(LED_RED);
 
       printf("toggled\r\n");
-
-      /* ..... Perform your action ..... */
-      //adc_test(ts_cal1, ts_cal2);
-      // printf("%lu\r\n", (unsigned long)gu_temp);
-
-
-      adc_volread();
-      printf("val:%d \r\n",is_dac);
-      if(is_dac){
-    	  HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, 2048); // DAC set
-      } else {
-    	  HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, 1);
-      }
-      is_dac = !is_dac;
-      printf("valafter:%d \r\n",is_dac);
-
-
-
-      //printf("elapsed = %lu ms\r\n", (unsigned long)(t1 - t0));
+      printf("error:%.6f\r\n", errors);
+      printf("u:%.6f\r\n", u);
+      printf("y:%.6f\r\n", y);
+      usr_param_update();
     }
-
-//    if(timcount == 10){
-//    	timcount = 0;
-//    	t1 = HAL_GetTick();
-//    	printf("elapsed = %lu ms\r\n", (unsigned long)(t1 - t0));
-//    	t0 = t1;
-//    }
 
     /* USER CODE END WHILE */
 
@@ -349,8 +421,8 @@ static void MX_ADC3_Init(void)
   hadc3.Init.ContinuousConvMode = DISABLE;
   hadc3.Init.NbrOfConversion = 1;
   hadc3.Init.DiscontinuousConvMode = DISABLE;
-  hadc3.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-  hadc3.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc3.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T6_TRGO;
+  hadc3.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
   hadc3.Init.DMAContinuousRequests = DISABLE;
   hadc3.Init.SamplingMode = ADC_SAMPLING_MODE_NORMAL;
   hadc3.Init.ConversionDataManagement = ADC_CONVERSIONDATA_DR;
@@ -367,7 +439,7 @@ static void MX_ADC3_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_4;
   sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC3_SAMPLETIME_247CYCLES_5;
+  sConfig.SamplingTime = ADC3_SAMPLETIME_12CYCLES_5;
   sConfig.SingleDiff = ADC_SINGLE_ENDED;
   sConfig.OffsetNumber = ADC_OFFSET_NONE;
   sConfig.Offset = 0;
@@ -419,9 +491,45 @@ static void MX_DAC1_Init(void)
   {
     Error_Handler();
   }
+
+  /** DAC channel OUT2 config
+  */
+  if (HAL_DAC_ConfigChannel(&hdac1, &sConfig, DAC_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
   /* USER CODE BEGIN DAC1_Init 2 */
 
   /* USER CODE END DAC1_Init 2 */
+
+}
+
+/**
+  * @brief OPAMP2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_OPAMP2_Init(void)
+{
+
+  /* USER CODE BEGIN OPAMP2_Init 0 */
+
+  /* USER CODE END OPAMP2_Init 0 */
+
+  /* USER CODE BEGIN OPAMP2_Init 1 */
+
+  /* USER CODE END OPAMP2_Init 1 */
+  hopamp2.Instance = OPAMP2;
+  hopamp2.Init.Mode = OPAMP_STANDALONE_MODE;
+  hopamp2.Init.PowerMode = OPAMP_POWERMODE_NORMAL;
+  hopamp2.Init.UserTrimming = OPAMP_TRIMMING_FACTORY;
+  if (HAL_OPAMP_Init(&hopamp2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN OPAMP2_Init 2 */
+
+  /* USER CODE END OPAMP2_Init 2 */
 
 }
 
@@ -451,7 +559,7 @@ static void MX_TIM6_Init(void)
   {
     Error_Handler();
   }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK)
   {
@@ -478,6 +586,8 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOG_CLK_ENABLE();
+  __HAL_RCC_GPIOE_CLK_ENABLE();
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
