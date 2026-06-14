@@ -154,15 +154,36 @@ def make_CGTEqs(sblockmat: sp.BlockMatrix, sp_obs: StateSpace, sm_obs: StateSpac
     CGTのS行列(blockmatrix)とプラント、規範モデルのsympy statespaceを受け取り、CGT条件式を計算して返す
     この時点では式は整理しない
     """
+    KAS = make_CGTEqs0(sblockmat, sp_obs, sm_obs)
+    expr = KAS[0]*KAS[1] - KAS[2]*KAS[3]
+    return expr.as_explicit(), KAS
+
+def make_CGTEqs0(
+        sblockmat: sp.BlockMatrix,
+        sp_obs: StateSpace,
+        sm_obs: StateSpace
+        ) -> tuple[
+        sp.BlockMatrix,
+        sp.BlockMatrix,
+        sp.BlockMatrix,
+        sp.BlockMatrix]:
+    """
+    CGTのS行列(blockmatrix)とプラント、規範モデルのsympy statespaceを受け取り、CGT条件式の準備をする
+    """
     Aps = sct.ss_to_blockmat(sp_obs)
     Ams = sct.ss_to_blockmat(sm_obs)
     sx = sblockmat.blocks[0,0]; n = sx.rows
     scoeff = sp.BlockMatrix([
     [sx, sp.ZeroMatrix(n, 1)],
     [sp.ZeroMatrix(1, n), sp.Identity(1)]])
-    expr = Aps*sblockmat - scoeff*Ams
-    KAS = sp.Tuple(Aps, sblockmat, scoeff, Ams)
-    return expr.as_explicit(), KAS
+    return Aps, sblockmat, scoeff, Ams
+
+def util_display_cgteq(kas):
+    """
+    CGT方程式の成分をリストで受け取り、式として見やすくする
+    """
+    kas2 = [k.as_explicit() for k in kas]
+    return sp.Eq(sp.MatMul(kas2[0], kas2[1], evaluate=False) , sp.MatMul(kas2[2], kas2[3], evaluate=False ), evaluate=False)
 
 def solve_CGTEq(cgteq, vals: tuple) -> dict:
     """
@@ -176,6 +197,42 @@ def solve_CGTEq(cgteq, vals: tuple) -> dict:
 def solve_CGTEq2(expr, ssdict, apsyms: tuple, bpsyms: tuple, kxsyms: tuple, kusyms: tuple):
     """
     CGT条件式とSx,Suを解いた辞書を受け取り、プラントパラメータやCGT解(Kx,Ku)について整理した式を返す
+    """
+    exprs2 = elim_zero_row(list(sp.simplify(expr.subs(ssdict)).T)) # Sx,Suを消去し整理したCGT条件式 kuの含まれる行を下にするため転置
+    eqlist = sp.simplify(sp.expand(exprs2))
+
+    absyms: tuple = apsyms + bpsyms
+    abmat = sp.Matrix(absyms).reshape(len(absyms), 1) #未知数ベクトル
+
+    kxkusyms: tuple = kxsyms + kusyms
+    kmat  = sp.Matrix(kxkusyms).reshape(len(kxkusyms), 1)
+
+    try:
+        mats = sp.linear_eq_to_matrix(eqlist, absyms)
+        abans = sp.Tuple(mats[0], abmat, mats[1])
+        # th = ks.partial_rref(sp.Matrix([[*mats]]), len(apsyms) )
+        # th[-1, :] /= th[-1, -1] # 最後の行を正規化
+        # abans = sp.Tuple(th[:, :-1], abmat, th[:, -1])
+    except Exception as e:
+        print("Error occurred while solving abmat.")
+        print("Exception message:", str(e))
+        mats, abans = None, None
+
+    try:
+        keqmats = sp.linear_eq_to_matrix(eqlist, kxkusyms)
+        kans = sp.Tuple(keqmats[0], kmat, keqmats[1])
+    except Exception as e:
+        print("Error occurred while solving kmat.")
+        print("Exception message:", str(e))
+        keqmats, kans = None, None
+
+    return eqlist, abans, kans
+
+
+def solve_CGTEq2_old(expr, ssdict, apsyms: tuple, bpsyms: tuple, kxsyms: tuple, kusyms: tuple):
+    """
+    CGT条件式とSx,Suを解いた辞書を受け取り、プラントパラメータやCGT解(Kx,Ku)について整理した式を返す
+    廃止
     """
     exprs2 = elim_zero_row(list(sp.simplify(expr.subs(ssdict)))) # Sx,Suを消去し整理したCGT条件式
     absyms: tuple = apsyms + bpsyms
