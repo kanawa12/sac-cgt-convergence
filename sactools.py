@@ -273,7 +273,7 @@ def CGT_def_and_solve(pdim, rdim, printmode=0):
     expr, kas = make_CGTEqs(SMat, ss_plant, ss_refmodel)
     resultdict |= {"CGT_expr": expr, "KAS": kas}
     # CGT方程式の作成
-    dpf(util_display_cgteq(kas))
+    dpf(util_display_cgteq(kas)[0])
 
     ssdict = solve_CGTEq(expr, svals:=symdict["Sx"] + symdict["Su"])
     # CGT方程式をS行列について解き、解を辞書の形で返す
