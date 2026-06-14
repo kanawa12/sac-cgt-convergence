@@ -254,6 +254,7 @@ def CGT_def_and_solve(pdim, rdim, printmode=0):
     """
     printmode: 0->何も表示しない, 1->display(), 2->print(sp.latex())で表示
     """
+    dpf = lambda x: None
     if printmode == 1:
         dpf = lambda x: display(x)
     elif printmode == 2:
@@ -262,7 +263,7 @@ def CGT_def_and_solve(pdim, rdim, printmode=0):
     _, _, ss_plant, ss_refmodel, symdict = build_ss_plant_and_refmodel(pdim, rdim, "obs", "obs")
     # 制御対象と規範モデルのsym StateSpaceの作成 symdictはシンボリック変数のリスト
     resultdict |= {"plant": ss_plant, "refmodel": ss_refmodel}
-    
+
     SMat, sdict = make_smats(pdim, rdim)
     # SAC,CGTで出てくるS_x, S_u, K_x, K_uの定義
     resultdict |= {"SMatrix": SMat}
