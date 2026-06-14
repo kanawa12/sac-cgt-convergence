@@ -178,12 +178,12 @@ def make_CGTEqs0(
     [sp.ZeroMatrix(1, n), sp.Identity(1)]])
     return Aps, sblockmat, scoeff, Ams
 
-def util_display_cgteq(kas):
+def util_display_cgteq(kas) -> tuple[sp.Eq, list]:
     """
     CGT方程式の成分をリストで受け取り、式として見やすくする
     """
     kas2 = [k.as_explicit() for k in kas]
-    return sp.Eq(sp.MatMul(kas2[0], kas2[1], evaluate=False) , sp.MatMul(kas2[2], kas2[3], evaluate=False ), evaluate=False)
+    return sp.Eq(sp.MatMul(kas2[0], kas2[1], evaluate=False) , sp.MatMul(kas2[2], kas2[3], evaluate=False ), evaluate=False), kas2
 
 def solve_CGTEq(cgteq, vals: tuple) -> dict:
     """
@@ -250,25 +250,36 @@ def solve_CGTEq2_old(expr, ssdict, apsyms: tuple, bpsyms: tuple, kxsyms: tuple, 
     kans = sp.Tuple(keqmats[0], kmat, keqmats[1])
     return reeq, abans, kans
 
-def CGT_def_and_solve(pdim, rdim):
+def CGT_def_and_solve(pdim, rdim, printmode=0):
+    """
+    printmode: 0->何も表示しない, 1->display(), 2->print(sp.latex())で表示
+    """
+    if printmode == 1:
+        dpf = lambda x: display(x)
+    elif printmode == 2:
+        dpf = lambda x: print(sp.latex(x))
+    resultdict = {}
     _, _, ss_plant, ss_refmodel, symdict = build_ss_plant_and_refmodel(pdim, rdim, "obs", "obs")
     # 制御対象と規範モデルのsym StateSpaceの作成 symdictはシンボリック変数のリスト
-
+    resultdict |= {"plant": ss_plant, "refmodel": ss_refmodel}
+    
     SMat, sdict = make_smats(pdim, rdim)
     # SAC,CGTで出てくるS_x, S_u, K_x, K_uの定義
+    resultdict |= {"SMatrix": SMat}
 
     symdict = symdict | sdict
 
     expr, kas = make_CGTEqs(SMat, ss_plant, ss_refmodel)
+    resultdict |= {"CGT_expr": expr, "KAS": kas}
     # CGT方程式の作成
+    dpf(util_display_cgteq(kas))
 
     ssdict = solve_CGTEq(expr, svals:=symdict["Sx"] + symdict["Su"])
     # CGT方程式をS行列について解き、解を辞書の形で返す
+    resultdict |= {"ssdict": ssdict}
 
     eq, abans, kans = solve_CGTEq2(expr, ssdict, symdict["Ap"], symdict["Bp"], symdict["Kx"], symdict["Ku"])
+    dpf(eq); dpf("abans:"); dpf(abans); dpf("kans:"); dpf(kans)
     # CGT方程式にS行列を代入して消去し、(Ap,Bp), (Kx,Ku) それぞれについてまとめる
-    resultdict = {
-        "plant": ss_plant, "refmodel": ss_refmodel, "SMatrix": SMat, "CGT_expr": expr, "KAS": kas,
-        "ssdict": ssdict, "plainEq":eq, "apbpEq": abans, "kxkuEq": kans
-    }
+    resultdict |= {"plainEq":eq, "apbpEq": abans, "kxkuEq": kans}
     return resultdict
