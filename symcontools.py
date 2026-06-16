@@ -42,7 +42,7 @@ def dp(ep, capt="", pmode=0, is_expt=False, isptype = False, is_latex = False):
 
 
 
-def setf(tp, suf, size):
+def setf_old(tp: str, suf: str, size: int):
     """
     連番の添え字付きのシンボリック変数を生成するテキストを生成する。
     tpは本体の文字、
@@ -50,31 +50,15 @@ def setf(tp, suf, size):
     """
     return "{" + tp + "_{"+suf + "}}" + "_{1:"+str(size + 1)+"}"
 
-def get_SISO_sims(dim, suf):
+"""
+def get_SISO_sims_old(dim: int, suf: str):
     A = sp.Matrix( a := sp.symbols(setf("a", suf, dim**2)) ).reshape(dim, dim)
     B = sp.Matrix( b := sp.symbols(setf("b", suf, dim)) ).reshape(dim, 1)
     C = sp.Matrix( c := sp.symbols(setf("c", suf, dim)) ).reshape(1, dim)
     D = sp.Matrix( d := sp.symbols(setf("d", suf, 1)) ).reshape(1, 1)
     return [(a, b, c, d), (A, B, C, D)]
+"""
 
-
-
-def makesyms(s1, s2, x, y) -> sp.Matrix:
-    st = ""
-    for i in range(x):
-        for j in range(y):
-            """
-            if x == 1:
-                st = st + "{" + s1 + "_" + s2 + r"}_{" + str(j+1)  + "} "
-            elif y == 1:
-                st = st + "{" + s1 + "_" + s2 + r"}_{" + str(i+1)  + "} "
-            else:
-                """
-            st = st + "{" + s1 + "_" + s2 + r"}_{" + str(i+1) + str(j+1)  + "} "
-    syms = sp.symbols(st)
-    if x == 1 and y == 1:
-        syms = [syms, ]
-    return sp.Matrix(syms).reshape(x, y)
 
 def make_single_syms(s1, s2, x, y):
     st = ""
@@ -86,6 +70,45 @@ def make_single_syms(s1, s2, x, y):
         syms = [syms, ]
     return sp.Matrix(syms).reshape(x, y)
 
+
+def makesyms(s1: str, s2: str, 
+             x : int, y : int, 
+             suffix_mode: int = 1,
+             ) -> tuple[str, sp.Matrix, sp.Matrix]:
+    """
+    連番の添え字付きのシンボリック変数を生成するテキストを生成する。
+    must 1 <= x, y <= 9
+
+    suffix_mode = 1:
+    ex: {a_m}_{12}
+    makesyms("s", "x", 2, 3)
+    -> Matrix([ [s_{x}_{11}, s_{x}_{12}, s_{x}_{13}], 
+                [s_{x}_{21}, s_{x}_{22}, s_{x}_{23}] ])
+    suffix_mode = 2:
+    ex: {a_{m}}_{1:3}
+    """
+    st = ""; syms = None
+    if suffix_mode == 1:
+        for i in range(x):
+            for j in range(y):
+                st += "{" + s1 + "_" + s2 + r"}_{" + str(i+1) + str(j+1)  + "} "
+
+    elif suffix_mode == 2:
+        st = "{" + s1 + "_{"+s2 + "}}" + "_{1:"+str(x*y + 1)+"}"
+
+    syms = sp.symbols(st)
+    if type(syms) is sp.Symbol:
+        syms = (syms, )
+
+    return st, syms, sp.Matrix(syms).reshape(x, y)
+
+
+def get_SISO_sims(dim: int, suf: str, suffix_mode: int = 1):
+    _, a, A = makesyms("a", suf, dim, dim, suffix_mode)
+    _, b, B = makesyms("b", suf, dim,   1, suffix_mode)
+    _, c, C = makesyms("c", suf,   1, dim, suffix_mode)
+    _, d, D = makesyms("d", suf,   1,   1, suffix_mode)
+    return [(a, b, c, d), (A, B, C, D)]
 
 
 def make_sym_canonform(systuple: sp.physics.control.StateSpace, mode: str, is_strictproper) -> sp.physics.control.StateSpace:
@@ -347,8 +370,6 @@ if __name__ == "__main__":
     print("B=\n", ss.B)
     print("C=\n", ss.C)
     print("D=\n", ss.D)
-
-
 
 
 

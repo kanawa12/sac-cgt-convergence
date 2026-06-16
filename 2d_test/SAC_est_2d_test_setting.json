@@ -1,0 +1,38 @@
+
+{
+    "name": "test_plant_and_refmodel_3dim2_geo",
+    "time_domain": "continuous",
+    "_loop_Ts": null,
+    "pdim" : 2,
+    "rdim" : 2,
+
+    "K0": {
+        "description": "initial adaptive gain",
+        "K0_e" : 0,
+        "K0_x" : [0, 0],
+        "K0_u" : 0
+    },
+    "sigma": {
+        "description": "sigma adjustment parameters",
+        "sig_e" : 0,
+        "sig_x" : [0, 0],
+        "sig_u" : 0
+    },
+    "kp": {
+        "description": "proportional adaptive gains",
+        "kpg_e" : 0,
+        "kpg_x" : [0, 0],
+        "kpg_u" : 0
+    },
+    "adj": {
+        "description": "adjustment gains",
+        "Ge" : 1e4,
+        "Gx" : [1e5,1e5],
+        "Gu" : 1e4
+    },
+    "sigset": [[0.01, 1, 0], [5, 1, 2], [50, 5, 4], [100, 10, 5]],
+    "est_expr_args": "",
+    "est_expr": null,
+    "cgt_expr": null
+}
+

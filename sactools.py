@@ -3,6 +3,8 @@ import sympy as sp
 from sympy.physics.control import StateSpace
 import symcontools as sct
 
+
+
 def ptest():
     print("aaa")
     return 0
@@ -136,19 +138,19 @@ def build_ss_plant_and_refmodel(pdim: int, mdim:int, pmode: str, mmode: str):
 
 
 def make_smats(pdim: int, rdim: int) -> sp.BlockMatrix:
-    sasyms = sct.makesyms("s", "x", rdim, rdim)
-    sbsyms = sct.makesyms("s", "u", pdim, 1)
-    Kxsyms = sct.makesyms("k", "x", 1, rdim)
-    Kusyms = sct.makesyms("k", "u", 1, 1)
+    _, _, sasyms = sct.makesyms("s", "x", rdim, rdim)
+    _, _, sbsyms = sct.makesyms("s", "u", pdim, 1)
+    _, _, Kxsyms = sct.makesyms("k", "x", 1, rdim)
+    _, _, Kusyms = sct.makesyms("k", "u", 1, 1)
     return sp.BlockMatrix([[sasyms, sbsyms], [Kxsyms, Kusyms]]), {"Sx": get_syms_tuple(sasyms), "Su": get_syms_tuple(sbsyms), "Kx": get_syms_tuple(Kxsyms), "Ku": get_syms_tuple(Kusyms)}
 
 
-
+"""
 def sym_setting(pdim, rdim, maindict):
     maindict["sp_bases"], maindict["sm_bases"], maindict["sp_obs"], maindict["sm_obs"] = build_ss_plant_and_refmodel(pdim, pdim, "obs", "obs")
     maindict["sskk_bases"] = make_smats(pdim, rdim)
     return maindict
-
+"""
 def make_CGTEqs(sblockmat: sp.BlockMatrix, sp_obs: StateSpace, sm_obs: StateSpace):
     """
     CGTのS行列(blockmatrix)とプラント、規範モデルのsympy statespaceを受け取り、CGT条件式を計算して返す
@@ -284,3 +286,74 @@ def CGT_def_and_solve(pdim, rdim, printmode=0):
     # CGT方程式にS行列を代入して消去し、(Ap,Bp), (Kx,Ku) それぞれについてまとめる
     resultdict |= {"plainEq":eq, "apbpEq": abans, "kxkuEq": kans}
     return resultdict
+
+
+# ------- interpret for MATLAB functions -------
+
+
+import re
+from sympy.printing.octave import octave_code
+
+def postprocess_latexish_to_matlab_index(expr) -> str:
+    """
+    Postprocess LaTeX-style index notation to MATLAB-style indexing.
+    例: {b_p}_{21} -> bp(2,1)
+    """
+    code = octave_code(expr)
+    code = re.sub(r"\{a_p\}_\{(\d)(\d)\}", r"ap(\1,\2)", code)
+    code = re.sub(r"\{b_p\}_\{(\d)(\d)\}", r"bp(\1,\2)", code)
+    code = re.sub(r"\{b_m\}_\{(\d)(\d)\}", r"bm(\1,\2)", code)
+    code = re.sub(r"\{a_m\}_\{(\d)(\d)\}", r"am(\1,\2)", code)
+    code = re.sub(r"\{k_x\}_\{(\d)(\d)\}", r"kx(\1,\2)", code)
+    code = re.sub(r"\{k_u\}_\{(\d)(\d)\}", r"ku(\1,\2)", code)
+    return code
+
+
+def get_est_func(estmats):
+    pdim = int(max(estmats[1].shape) / 2)
+    Ap = estmats[1][:pdim, :]
+    Bp = estmats[1][pdim:, :]
+    orig_mats    = sp.Tuple(Ap, estmats[0][:, pdim:], Bp, estmats[2][:, :])
+    orig_estonly = sp.Tuple(Ap, estmats[0][:-1, pdim:], Bp, estmats[2][:-1, :])
+    orig_residue = sp.Tuple(sp.Matrix([0]) , estmats[0][ -1, pdim:], Bp, estmats[2][ -1, :])
+    return orig_mats, orig_estonly, orig_residue
+
+
+def tupple_to_estform(est_tupple: tuple):
+    """
+    get_est_func で得られる形のタプルから推定式を作る。
+    (Ap, estmat, B, y) -> Ap = -estmat * B + y
+    """
+    Ap, estmat, B, y = est_tupple
+    right = sp.MatAdd(
+        sp.MatMul(-1, sp.MatMul(estmat, B, evaluate=False), evaluate=False), 
+        y, 
+        evaluate=False)
+    est_eq = sp.Eq(Ap, right)
+    return est_eq, right
+
+def get_cgt_func(cgtmats):
+    cgtmat = cgtmats[0]; kxku = cgtmats[1] ; y = cgtmats[2]
+    cgteq = 0 #cgteq = sp.Eq(lhs=kxku, rhs=sp.MatMul(sp.Inverse(cgtmat), y, evaluate=False), evaluate=False)
+    ml_cgtmat = postprocess_latexish_to_matlab_index(cgtmat)
+    ml_y = postprocess_latexish_to_matlab_index(y)
+    expr = ml_cgtmat + r" \ " + ml_y
+    return cgteq, expr
+
+def util_example_for_est_func(rdict):
+    Am = rdict["refmodel"].A[:, -1]
+    Bm = rdict["refmodel"].B
+
+    a, b, c = get_est_func(rdict["apbpEq"], Bm)
+    print("orig_mats"); sct.dp(a)
+    print("orig_estonly"); sct.dp(b)
+    print("orig_residue"); sct.dp(c)
+
+    eq, right = tupple_to_estform(a)
+
+    sct.dp(eq); sct.dp(right)
+
+    text = postprocess_latexish_to_matlab_index(right)
+    print(text)
+    ceq, ctext = get_cgt_func(rdict["kxkuEq"])
+    sct.dp(ceq); print(ctext)
